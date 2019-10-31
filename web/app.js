@@ -47,6 +47,7 @@ import { SecondaryToolbar } from './secondary_toolbar';
 import { Toolbar } from './toolbar';
 import { ViewHistory } from './view_history';
 
+const DEFAULT_INDEX = 0;
 const DEFAULT_SCALE_DELTA = 1.1;
 const DISABLE_AUTO_FETCH_LOADING_BAR_TIMEOUT = 5000; // ms
 const FORCE_PAGES_LOADED_TIMEOUT = 10000; // ms
@@ -1383,6 +1384,8 @@ let PDFViewerApplication = {
     eventBus.on('findfromurlhash', webViewerFindFromUrlHash);
     eventBus.on('updatefindmatchescount', webViewerUpdateFindMatchesCount);
     eventBus.on('updatefindcontrolstate', webViewerUpdateFindControlState);
+    eventBus.on('note', webViewTakingNote);
+    eventBus.on('submitnote', webViewSubmitNote);
     if (typeof PDFJSDev === 'undefined' || PDFJSDev.test('GENERIC')) {
       eventBus.on('fileinputchange', webViewerFileInputChange);
     }
@@ -1559,8 +1562,9 @@ function loadAndEnablePDFBug(enabledTabs) {
   });
 }
 
-function webViewerInitialized() {
+async function webViewerInitialized() {
   let appConfig = PDFViewerApplication.appConfig;
+  PDFViewerApplication.notesAll = {};
   let file;
   if (typeof PDFJSDev === 'undefined' || PDFJSDev.test('GENERIC')) {
     let queryString = document.location.search.substring(1);
@@ -1662,6 +1666,33 @@ function webViewerInitialized() {
       PDFViewerApplication.error(msg, reason);
     });
   }
+
+  // get file id;
+  PDFViewerApplication.fileId = Number(PDFViewerApplication.url.match(/\d+/)[DEFAULT_INDEX]);
+  // retriving notes;
+  const res = (await axios.get('/graphql', {
+    params: {
+      query: `
+query searchContent($id: Int!) {
+  fetchAllBookNoteById(id: $id) {
+    id
+    bookId
+    page
+    note
+  }
+}
+      `,
+      variables: {
+        id: 1
+      }
+    }
+  })).data.data.fetchAllBookNoteById;
+  res.forEach(i => {
+    if (!Array.isArray(PDFViewerApplication.notesAll[i.page])) {
+      PDFViewerApplication.notesAll[i.page] = [];
+    }
+    PDFViewerApplication.notesAll[i.page].push(i.note);
+  });
 }
 
 let webViewerOpenFileViaURL;
@@ -2025,6 +2056,46 @@ function webViewerFindFromUrlHash(evt) {
   });
 }
 
+function webViewTakingNote(evt) {
+  const e = PDFViewerApplication.toolbar.items.note.inputBar;
+  if (e.style.display === 'flex') {
+    e.setAttribute('style', 'display: none;');
+  } else {
+    e.setAttribute('style', 'display: flex;');
+  }
+}
+
+async function webViewSubmitNote(evt) {
+  const { page } = PDFViewerApplication;
+  const note = PDFViewerApplication.toolbar.items.note.textarea.value;
+
+  // update to server;
+  try {
+    await axios.post('/graphql', {
+      query: `
+mutation insertBookNote($input: BookNoteInput!) {
+  insertBookNote(BookNote: $input) {
+    result
+  }
+}`,
+      variables: {
+        input: {
+          bookId: PDFViewerApplication.fileId, page, note
+        }
+      }
+    });
+    PDFViewerApplication.toolbar.items.note.inputBar.setAttribute('style', 'display: none;');
+    PDFViewerApplication.toolbar.items.note.textarea.value = '';
+    // save value;
+    if (!Array.isArray(PDFViewerApplication.notesAll[page])) {
+      PDFViewerApplication.notesAll[page] = [];
+    }
+    PDFViewerApplication.notesAll[page].push(note);
+    // re-render;
+    _showNotes(page);
+  } catch(e) {}
+}
+
 function webViewerUpdateFindMatchesCount({ matchesCount, }) {
   if (PDFViewerApplication.supportsIntegratedFind) {
     PDFViewerApplication.externalServices.updateFindMatchesCount(matchesCount);
@@ -2059,7 +2130,18 @@ function webViewerRotationChanging(evt) {
   PDFViewerApplication.pdfViewer.currentPageNumber = evt.pageNumber;
 }
 
-function webViewerPageChanging(evt) {
+function _showNotes(page) {
+  // show notes;
+  if (PDFViewerApplication.notesAll) {
+    let notes = PDFViewerApplication.notesAll[page];
+    const e = PDFViewerApplication.toolbar.items.note.list;
+    e.innerHTML = Array.isArray(notes) && notes.length > 0 ? notes.map(i => {
+      return `<li><pre>${i}</pre></li>`
+    }).join('') : '';
+  }
+}
+
+async function webViewerPageChanging(evt) {
   let page = evt.pageNumber;
 
   PDFViewerApplication.toolbar.setPageNumber(page, evt.pageLabel || null);
@@ -2067,6 +2149,24 @@ function webViewerPageChanging(evt) {
 
   if (PDFViewerApplication.pdfSidebar.isThumbnailViewVisible) {
     PDFViewerApplication.pdfThumbnailViewer.scrollThumbnailIntoView(page);
+  }
+
+  _showNotes(page);
+  // update page location;
+  if (PDFViewerApplication.fileId > 0) {
+    await axios.post('/graphql', {
+      query: `
+mutation updateBookCurrentPage($input: BookCurrentPageInput!) {
+  updateBookCurrentPage(BookCurrentPage: $input) {
+    result
+  }
+}`,
+      variables: {
+        input: {
+          id: PDFViewerApplication.fileId, currentPage: page,
+        }
+      }
+    });
   }
 
   // We need to update stats.

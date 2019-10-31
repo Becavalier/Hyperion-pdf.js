@@ -78,6 +78,13 @@ function getViewerConfiguration() {
       presentationModeButton: document.getElementById('presentationMode'),
       download: document.getElementById('download'),
       viewBookmark: document.getElementById('viewBookmark'),
+      note: {
+        actionBar: document.getElementById('note'),
+        inputBar: document.getElementById('noteInputBar'),
+        textarea: document.querySelector('#noteInputBar textarea'),
+        submitBtn: document.querySelector('#noteInputBar button'),
+        list: document.querySelector('#noteList ul'),
+      },
     },
     secondaryToolbar: {
       toolbar: document.getElementById('secondaryToolbar'),

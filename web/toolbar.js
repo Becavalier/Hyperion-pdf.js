@@ -151,6 +151,14 @@ class Toolbar {
       eventBus.dispatch('download', { source: self, });
     });
 
+    items.note.actionBar.addEventListener('click', function() {
+      eventBus.dispatch('note', { source: self, });
+    });
+
+    items.note.submitBtn.addEventListener('click', function() {
+      eventBus.dispatch('submitnote', { source: self, });
+    });
+
     // Suppress context menus for some controls.
     items.scaleSelect.oncontextmenu = noContextMenuHandler;
 
