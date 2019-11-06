@@ -1673,17 +1673,17 @@ async function webViewerInitialized() {
   const res = (await axios.get('/graphql', {
     params: {
       query: `
-query searchContent($id: Int!) {
-  fetchAllBookNoteById(id: $id) {
-    id
-    bookId
-    page
-    note
-  }
-}
+        query fetchBookNotes($id: Int!) {
+          fetchAllBookNoteById(id: $id) {
+            id
+            bookId
+            page
+            note
+          }
+        }
       `,
       variables: {
-        id: 1
+        id: PDFViewerApplication.fileId
       }
     }
   })).data.data.fetchAllBookNoteById;
